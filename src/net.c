@@ -39,6 +39,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <sys/epoll.h>
 
 #ifdef HAVE_SENDFILE
 #ifdef linux
@@ -81,6 +82,8 @@ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
     int timeout)
 {
 	struct pollfd pfd;
+    struct epoll_event ev;
+    int epfd = epoll_create1(0);
 	socklen_t optlen;
 	int flags, optval;
 	int ret;
@@ -93,9 +96,12 @@ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
 	}
 
 	if ((ret = connect(s, name, namelen)) != 0 && errno == EINPROGRESS) {
-		pfd.fd = s;
-		pfd.events = POLLOUT;
-		if ((ret = poll(&pfd, 1, timeout)) == 1) {
+		// pfd.fd = s;
+		// pfd.events = POLLOUT;
+		// if ((ret = poll(&pfd, 1, timeout)) == 1) {
+        ev.data.fd = s;
+        epoll_ctl(epfd, EPOLL_CTL_ADD, ev.data.fd, ev);
+        if ((ret = epoll_wait(epfd, &ev, 1, timeout)) == 1) {
 			optlen = sizeof(optval);
 			if ((ret = getsockopt(s, SOL_SOCKET, SO_ERROR,
 			    &optval, &optlen)) == 0) {
