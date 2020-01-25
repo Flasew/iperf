@@ -68,6 +68,8 @@
 #include <openssl/evp.h>
 #endif // HAVE_SSL
 
+#include <mtcp_api.h>
+
 typedef uint64_t iperf_size_t;
 
 struct iperf_interval_results

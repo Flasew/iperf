@@ -50,7 +50,6 @@
 
 #include <mtcp_api.h>
 
-mctx_t mctx;
 struct thread_context
 {
     int core;
@@ -59,6 +58,11 @@ struct thread_context
 
 static int run(struct iperf_test *test);
 
+void
+SignalHandler(int signum)
+{
+  return;
+}
 
 /**************************************************************************/
 int
@@ -68,6 +72,7 @@ main(int argc, char **argv)
 
     int core = 0;
     struct mtcp_conf mcfg;
+    struct thread_context * ctx;
     mtcp_getconf(&mcfg);
     mcfg.num_cores = 1;
     mtcp_setconf(&mcfg);
@@ -77,8 +82,8 @@ main(int argc, char **argv)
         return -1;
     }
     mtcp_getconf(&mcfg);
-    mcfg.max_concurrency = 3 * CONCURRENCY;
-    mcfg.max_num_buffers = 3 * CONCURRENCY;
+    mcfg.max_concurrency = 3;
+    mcfg.max_num_buffers = 3;
     mtcp_setconf(&mcfg);
     mtcp_register_signal(SIGINT, SignalHandler);
 

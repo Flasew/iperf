@@ -76,7 +76,7 @@
  */
 extern int gerror;
 
-extern mctx_t mctx;
+mctx_t mctx;
 
 /*
  * timeout_connect adapted from netcat, via OpenBSD and FreeBSD
@@ -86,7 +86,7 @@ int
 timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
     int timeout)
 {
-    struct epoll_event ev;
+    struct mtcp_epoll_event ev;
     int epfd = mtcp_epoll_create1(mctx, 0);
 	socklen_t optlen;
 	int optval;
@@ -100,7 +100,7 @@ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
 	if ((ret = mtcp_connect(mctx, s, name, namelen)) != 0 && errno == EINPROGRESS) {
         ev.data.sockid = s;
         ev.events = EPOLLOUT;
-        mtcp_epoll_ctl(mctx, epfd, EPOLL_CTL_ADD, ev.data.fd, &ev);
+        mtcp_epoll_ctl(mctx, epfd, EPOLL_CTL_ADD, ev.data.sockid, &ev);
         if ((ret = mtcp_epoll_wait(mctx, epfd, &ev, 1, timeout)) == 1) {
 			optlen = sizeof(optval);
 			if ((ret = mtcp_getsockopt(mctx, s, SOL_SOCKET, SO_ERROR,
@@ -263,7 +263,7 @@ netannounce(int domain, int proto, char *local, int port)
     }
 
     opt = 1;
-    if (mctp_setsockopt(mctx, s, SOL_SOCKET, SO_REUSEADDR, 
+    if (mtcp_setsockopt(mctx, s, SOL_SOCKET, SO_REUSEADDR, 
 		   (char *) &opt, sizeof(opt)) < 0) {
 	saved_errno = errno;
 	mtcp_close(mctx, s);
@@ -285,7 +285,7 @@ netannounce(int domain, int proto, char *local, int port)
 	    opt = 0;
 	else
 	    opt = 1;
-	if (mctp_setsockopt(mctx, s, IPPROTO_IPV6, IPV6_V6ONLY, 
+	if (mtcp_setsockopt(mctx, s, IPPROTO_IPV6, IPV6_V6ONLY, 
 		       (char *) &opt, sizeof(opt)) < 0) {
 	    saved_errno = errno;
 	    mtcp_close(mctx, s);
