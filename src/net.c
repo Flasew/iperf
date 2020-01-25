@@ -100,6 +100,7 @@ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
 		// pfd.events = POLLOUT;
 		// if ((ret = poll(&pfd, 1, timeout)) == 1) {
         ev.data.fd = s;
+        ev.events = EPOLLOUT;
         epoll_ctl(epfd, EPOLL_CTL_ADD, ev.data.fd, &ev);
         if ((ret = epoll_wait(epfd, &ev, 1, timeout)) == 1) {
 			optlen = sizeof(optval);
