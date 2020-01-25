@@ -66,12 +66,17 @@
 #include "net.h"
 #include "timer.h"
 
+#include <mtcp_api.h>
+#include <mtcp_epoll.h>
+
 /*
  * Declaration of gerror in iperf_error.c.  Most other files in iperf3 can get this
  * by including "iperf.h", but net.c lives "below" this layer.  Clearly the
  * presence of this declaration is a sign we need to revisit this layering.
  */
 extern int gerror;
+
+extern mctx_t mctx;
 
 /*
  * timeout_connect adapted from netcat, via OpenBSD and FreeBSD
@@ -81,30 +86,24 @@ int
 timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
     int timeout)
 {
-	struct pollfd pfd;
     struct epoll_event ev;
-    int epfd = epoll_create1(0);
+    int epfd = mtcp_epoll_create1(mctx, 0);
 	socklen_t optlen;
-	int flags, optval;
+	int optval;
 	int ret;
 
-	flags = 0;
 	if (timeout != -1) {
-		flags = fcntl(s, F_GETFL, 0);
-		if (fcntl(s, F_SETFL, flags | O_NONBLOCK) == -1)
+		if (mtcp_setsock_nonblock(mctx, s) == -1)
 			return -1;
 	}
 
-	if ((ret = connect(s, name, namelen)) != 0 && errno == EINPROGRESS) {
-		// pfd.fd = s;
-		// pfd.events = POLLOUT;
-		// if ((ret = poll(&pfd, 1, timeout)) == 1) {
-        ev.data.fd = s;
+	if ((ret = mtcp_connect(mctx, s, name, namelen)) != 0 && errno == EINPROGRESS) {
+        ev.data.sockid = s;
         ev.events = EPOLLOUT;
-        epoll_ctl(epfd, EPOLL_CTL_ADD, ev.data.fd, &ev);
-        if ((ret = epoll_wait(epfd, &ev, 1, timeout)) == 1) {
+        mtcp_epoll_ctl(mctx, epfd, EPOLL_CTL_ADD, ev.data.fd, &ev);
+        if ((ret = mtcp_epoll_wait(mctx, epfd, &ev, 1, timeout)) == 1) {
 			optlen = sizeof(optval);
-			if ((ret = getsockopt(s, SOL_SOCKET, SO_ERROR,
+			if ((ret = mtcp_getsockopt(mctx, s, SOL_SOCKET, SO_ERROR,
 			    &optval, &optlen)) == 0) {
 				errno = optval;
 				ret = optval == 0 ? 0 : -1;
@@ -116,8 +115,9 @@ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen,
 			ret = -1;
 	}
 
-	if (timeout != -1 && fcntl(s, F_SETFL, flags) == -1)
-		ret = -1;
+    // TODO: somehow get if the socket was blocking or not. 
+	// if (timeout != -1 && fcntl(s, F_SETFL, flags) == -1)
+	// 	ret = -1;
 
 	return (ret);
 }
@@ -147,7 +147,7 @@ netdial(int domain, int proto, char *local, int local_port, char *server, int po
     if ((gerror = getaddrinfo(server, NULL, &hints, &server_res)) != 0)
         return -1;
 
-    s = socket(server_res->ai_family, proto, 0);
+    s = mtcp_socket(mctx, server_res->ai_family, proto, 0);
     if (s < 0) {
 	if (local)
 	    freeaddrinfo(local_res);
@@ -163,9 +163,9 @@ netdial(int domain, int proto, char *local, int local_port, char *server, int po
             lcladdr->sin_port = htons(local_port);
         }
 
-        if (bind(s, (struct sockaddr *) local_res->ai_addr, local_res->ai_addrlen) < 0) {
+        if (mtcp_bind(mctx, s, (struct sockaddr *) local_res->ai_addr, local_res->ai_addrlen) < 0) {
 	    saved_errno = errno;
-	    close(s);
+	    mtcp_close(mctx, s);
 	    freeaddrinfo(local_res);
 	    freeaddrinfo(server_res);
 	    errno = saved_errno;
@@ -200,9 +200,9 @@ netdial(int domain, int proto, char *local, int local_port, char *server, int po
             return -1;
 	}
 
-        if (bind(s, (struct sockaddr *) &lcl, addrlen) < 0) {
+        if (mtcp_bind(mctx, s, (struct sockaddr *) &lcl, addrlen) < 0) {
 	    saved_errno = errno;
-	    close(s);
+	    mtcp_close(mctx, s);
 	    freeaddrinfo(server_res);
 	    errno = saved_errno;
             return -1;
@@ -212,7 +212,7 @@ netdial(int domain, int proto, char *local, int local_port, char *server, int po
     ((struct sockaddr_in *) server_res->ai_addr)->sin_port = htons(port);
     if (timeout_connect(s, (struct sockaddr *) server_res->ai_addr, server_res->ai_addrlen, timeout) < 0 && errno != EINPROGRESS) {
 	saved_errno = errno;
-	close(s);
+	mtcp_close(mctx, s);
 	freeaddrinfo(server_res);
 	errno = saved_errno;
         return -1;
@@ -256,17 +256,17 @@ netannounce(int domain, int proto, char *local, int port)
     if ((gerror = getaddrinfo(local, portstr, &hints, &res)) != 0)
         return -1; 
 
-    s = socket(res->ai_family, proto, 0);
+    s = mtcp_socket(mctx, res->ai_family, proto, 0);
     if (s < 0) {
 	freeaddrinfo(res);
         return -1;
     }
 
     opt = 1;
-    if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, 
+    if (mctp_setsockopt(mctx, s, SOL_SOCKET, SO_REUSEADDR, 
 		   (char *) &opt, sizeof(opt)) < 0) {
 	saved_errno = errno;
-	close(s);
+	mtcp_close(mctx, s);
 	freeaddrinfo(res);
 	errno = saved_errno;
 	return -1;
@@ -285,10 +285,10 @@ netannounce(int domain, int proto, char *local, int port)
 	    opt = 0;
 	else
 	    opt = 1;
-	if (setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, 
+	if (mctp_setsockopt(mctx, s, IPPROTO_IPV6, IPV6_V6ONLY, 
 		       (char *) &opt, sizeof(opt)) < 0) {
 	    saved_errno = errno;
-	    close(s);
+	    mtcp_close(mctx, s);
 	    freeaddrinfo(res);
 	    errno = saved_errno;
 	    return -1;
@@ -296,9 +296,9 @@ netannounce(int domain, int proto, char *local, int port)
     }
 #endif /* IPV6_V6ONLY */
 
-    if (bind(s, (struct sockaddr *) res->ai_addr, res->ai_addrlen) < 0) {
+    if (mtcp_bind(mctx, s, (struct sockaddr *) res->ai_addr, res->ai_addrlen) < 0) {
         saved_errno = errno;
-        close(s);
+        mtcp_close(mctx, s);
 	freeaddrinfo(res);
         errno = saved_errno;
         return -1;
@@ -307,9 +307,9 @@ netannounce(int domain, int proto, char *local, int port)
     freeaddrinfo(res);
     
     if (proto == SOCK_STREAM) {
-        if (listen(s, INT_MAX) < 0) {
+        if (mtcp_listen(mctx, s, INT_MAX) < 0) {
 	    saved_errno = errno;
-	    close(s);
+	    mtcp_close(mctx, s);
 	    errno = saved_errno;
             return -1;
         }
@@ -330,7 +330,7 @@ Nread(int fd, char *buf, size_t count, int prot)
     register size_t nleft = count;
 
     while (nleft > 0) {
-        r = read(fd, buf, nleft);
+        r = mtcp_read(mctx, fd, buf, nleft);
         if (r < 0) {
             if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
                 break;
@@ -357,7 +357,7 @@ Nwrite(int fd, const char *buf, size_t count, int prot)
     register size_t nleft = count;
 
     while (nleft > 0) {
-	r = write(fd, buf, nleft);
+	r = mtcp_write(mctx, fd, buf, nleft);
 	if (r < 0) {
 	    switch (errno) {
 		case EINTR:
@@ -454,7 +454,7 @@ Nsendfile(int fromfd, int tofd, const char *buf, size_t count)
     }
     return count;
 #else /* HAVE_SENDFILE */
-    errno = ENOSYS;	/* error if somehow get called without HAVE_SENDFILE */
+    errno = ENOSYS;	/* error if somehow get called wfithout HAVE_SENDFILE */
     return NET_HARDERROR;
 #endif /* HAVE_SENDFILE */
 }
@@ -464,22 +464,19 @@ Nsendfile(int fromfd, int tofd, const char *buf, size_t count)
 int
 setnonblocking(int fd, int nonblocking)
 {
-    int flags, newflags;
 
-    flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0) {
-        perror("fcntl(F_GETFL)");
-        return -1;
+    if (nonblocking) {
+	   if (mtcp_setsock_nonblock(mctx, fd) < 0) {
+            perror("mtcp_setsock_nonblock");
+            return -1;
+       }
     }
-    if (nonblocking)
-	newflags = flags | (int) O_NONBLOCK;
-    else
-	newflags = flags & ~((int) O_NONBLOCK);
-    if (newflags != flags)
-	if (fcntl(fd, F_SETFL, newflags) < 0) {
-	    perror("fcntl(F_SETFL)");
-	    return -1;
-	}
+    else {
+        if (mtcp_setsock_block(mctx, fd) < 0) {
+            perror("mtcp_setsock_block");
+            return -1;
+       }
+    }
     return 0;
 }
 
@@ -491,7 +488,7 @@ getsockdomain(int sock)
     struct sockaddr_storage sa;
     socklen_t len = sizeof(sa);
 
-    if (getsockname(sock, (struct sockaddr *)&sa, &len) < 0) {
+    if (mtcp_getsockname(mctx, sock, (struct sockaddr *)&sa, &len) < 0) {
         return -1;
     }
     return ((struct sockaddr *) &sa)->sa_family;

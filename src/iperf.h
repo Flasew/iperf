@@ -386,5 +386,6 @@ struct iperf_test
 #define MAX_STREAMS 128
 
 extern int gerror; /* error value from getaddrinfo(3), for use in internal error handling */
+extern mctx_t mctx;
 
 #endif /* !__IPERF_H */
