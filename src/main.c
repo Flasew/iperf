@@ -77,7 +77,7 @@ main(int argc, char **argv)
     mcfg.num_cores = 1;
     mtcp_setconf(&mcfg);
     fprintf(stderr, "Initializing mtcp...\n");
-    if (mtcp_init("client.conf")) {
+    if (mtcp_init("iperf.conf")) {
         fprintf(stderr, "Failed to initialize mtcp.\n");
         return -1;
     }
