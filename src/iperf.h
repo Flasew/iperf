@@ -324,7 +324,7 @@ struct iperf_test
 
     int       num_streams;                      /* total streams in the test (-P) */
 
-    iperf_size_t bytes_sent;
+    iperf_size_t bytes_sent; 
     iperf_size_t blocks_sent;
 
     iperf_size_t bytes_received;
